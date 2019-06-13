@@ -5,22 +5,15 @@ name: cambridge
 # City centerpoint latitude & longitude
 city_latitude: 42.3736158
 city_longitude: -71.10973349999999
+timezone: America/New_York
 # Radius of city's road network from centerpoint in km (required if OSM has no polygon data)
 city_radius: 10
-# If given, limit crashes to after start_year and before end_year
-start_year:
-end_year:
+# If given, limit crashes to after startdate and no later than enddate
+startdate:
+enddate:
 
 ##############################################################################
 # Configuration for data standardization
-
-# List of concern type information
-concern_files:
-  - name: concern
-    filename: Commonwealth_Connect_Service_Requests.csv
-    latitude: lat
-    longitude: lng
-    time: ticket_created_date_time
 
 # crash file configurations
 crashes_files:
@@ -32,41 +25,58 @@ crashes_files:
       # If date supplied in single column:
       date_complete: DateTime
       # If date is separated into year/month/day:
-      date_year: 
-      date_month: 
+      date_year:
+      date_month:
       # Leave date_day empty if not available
-      date_day: 
+      date_day:
       # If time is available and separate from date:
-      time: 
+      time:
       # If time specified, time_format is one of:
       # default (HH:MM:SS)
       # seconds (since midnight)
       # military (HHMM)
-      time_format: 
+      time_format:
     optional:
       summary:
       address: Address
-      vehicles: 
-      bikes: 
+      vehicles:
+      bikes:
 
-
-# concern column name
-# leave as '' if not adding concerns
-concern: seeclickfix
-
-# week on which to predict crashes (week, year)
-# as is, will end up outputting predictions for all weeks up to this week
-# TODO: Make this more relevant for control
-time_target: [30, 2017]
 
 # Additional data sources
 data_source:
-  - name: parking_tickets
-    filename: Cambridge_Parking_Tickets.csv
-    address: Location
-    date: Ticket Issue Date
-    time: Issue Time
-    category: Violation Description
-    notes: 
+- name: parking_tickets
+  filename: Cambridge_Parking_Tickets.csv
+  address: Location
+  date: Ticket Issue Date
+  time: Issue Time
+  category: Violation Description
+  notes:
     # Feature can be categorical (f_cat) or continuous (f_cont)
-    feat: f_cont
+  feat_type: continuous
+- name: seeclickfix
+  filename: Commonwealth_Connect_Service_Requests.csv
+  latitude: lat
+  longitude: lng
+  date: ticket_created_date_time
+  category: issue_type  
+#  feat_type: categorical
+
+openstreetmap_features:
+  categorical:
+    width: Width
+    cycleway_type: Bike lane
+    oneway: One Way
+    lanes: Number of lanes
+  continuous:
+    width_per_lane: Average width per lane
+waze_features:
+  categorical:
+    jam: Existence of a jam
+  continuous:
+    jam_percent: Percent of time there was a jam
+    avg_jam_level: Jam level
+#    alert_WEATHERHAZARD: Waze weather hazard alert
+#    alert_JAM: Waze jam alert
+#    alert_ROAD_CLOSED: Waze road closed alert
+#    alert_ACCIDENT: Waze crash alert

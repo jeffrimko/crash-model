@@ -1,10 +1,11 @@
 from .. import util
+from ..segment import Segment
 import os
-from shapely.geometry import Point
+from shapely.geometry import Point, LineString, MultiLineString
 import pyproj
-import csv
 import fiona
 import geojson
+import numpy as np
 
 
 TEST_FP = os.path.dirname(os.path.abspath(__file__))
@@ -13,7 +14,7 @@ TEST_FP = os.path.dirname(os.path.abspath(__file__))
 def test_read_geojson():
     res = util.read_geojson(TEST_FP + '/data/processed/maps/inters.geojson')
     assert len(res) == 6
-    assert type(res[0][0]) == Point
+    assert type(res[0].geometry) == Point
 
 
 def test_write_shp(tmpdir):
@@ -131,6 +132,7 @@ def test_make_schema():
     assert result_schema == {'geometry': 'Point', 'properties':
                              {'X': 'str', 'NAME': 'str'}}
 
+
 def test_prepare_geojson():
     records = [{
         'geometry': {
@@ -154,8 +156,11 @@ def test_prepare_geojson():
         'properties': {'id': 2}
     }]
     results = util.prepare_geojson(records)
+    actual_coords = results['features'][0]['geometry']['coordinates']
+    actual_properties = results['features'][0]['properties']
+    assert actual_properties == {"id": 2}
 
-    assert results == {
+    expected = {
         "features": [{
             "geometry": {
                 "coordinates": [
@@ -182,17 +187,43 @@ def test_prepare_geojson():
         "type": "FeatureCollection"
     }
 
+    expected_coords = [
+        [
+            [-71.09501393541515, 42.30567003680977],
+            [-71.095034, 42.30580199999999]
+        ],
+        [
+            [-71.095034, 42.30580199999999],
+            [-71.09489394615605, 42.30571887587566]
+        ],
+        [
+            [-71.09507331122536, 42.30593152960553],
+            [-71.09507, 42.30591099999999],
+            [-71.095034, 42.30580199999999]
+        ]
+    ]
+
+    # assert almost equals in case of small precision differences
+    for i in range(len(actual_coords)):
+        for j in range(len(actual_coords[i])):
+            np.testing.assert_almost_equal(
+                actual_coords[i][j], expected_coords[i][j])
+
 
 def test_get_center_point():
     assert util.get_center_point(
-        geojson.Feature(
-            geometry=geojson.LineString([[1, 0], [3, 0]]))) == (2.0, 0.0)
+        Segment(
+            LineString([[1, 0], [3, 0]]),
+            {}
+        )) == (2.0, 0.0)
 
-    assert util.get_center_point(geojson.Feature(
-        geometry=geojson.MultiLineString(
-            [[[2, 0], [2, 4]], [[0, 2], [4, 2]]]))) == (2.0, 2.0)
+    assert util.get_center_point(Segment(
+        MultiLineString(
+            [[[2, 0], [2, 4]], [[0, 2], [4, 2]]]),
+        {}
+    )) == (2.0, 2.0)
     assert util.get_center_point(
-        geojson.Feature(geometry=geojson.Point([0, 0]))) == (None, None)
+        Segment(Point([0, 0]), {})) == (None, None)
 
 
 def test_get_roads_and_inters():
@@ -204,3 +235,47 @@ def test_get_roads_and_inters():
     roads, inters = util.get_roads_and_inters(path)
     assert len(roads) == 4
     assert len(inters) == 1
+
+
+def test_output_from_shapes(tmpdir):
+    tmppath = tmpdir.strpath
+
+    path = os.path.join(tmppath, 'test_output.geojson')
+    records = [
+        {
+            'geometry': {
+                'coordinates': (-71.112940, 42.370110),
+                'type': 'Point'
+            },
+            'properties': {}
+        },
+        {
+            'geometry': {
+                'coordinates': (-71.112010, 42.371440),
+                'type': 'Point'
+            },
+            'properties': {}
+        }
+    ]
+    
+    records = util.reproject_records(records)
+    polys = [
+        (records[0]['geometry'].buffer(3), {}),
+        (records[1]['geometry'].buffer(3), {})
+    ]
+
+    util.output_from_shapes(polys, path)
+    # Read in the output, and just validate a couple of coordinates
+    with open(path) as f:
+        items = geojson.load(f)
+
+        assert items['features'][0]['geometry']['type'] == 'Polygon'
+        np.testing.assert_almost_equal(
+            items['features'][0]['geometry']['coordinates'][0][0],
+            [-71.11291305054148, 42.370109999999976])
+
+        assert items['features'][1]['geometry']['type'] == 'Polygon'
+        np.testing.assert_almost_equal(
+            items['features'][1]['geometry']['coordinates'][0][0],
+            [-71.11198305054148, 42.37143999999999])
+

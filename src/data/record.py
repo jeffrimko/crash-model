@@ -5,11 +5,13 @@ from dateutil.parser import parse
 class Record(object):
     "A record contains a dict of properties and a point in 4326 projection"
 
-    def __init__(self, properties):
-
-        self.point = util.get_reproject_point(
-            properties['location']['latitude'],
-            properties['location']['longitude'])
+    def __init__(self, properties, point=None):
+        if point:
+            self.point = point
+        else:
+            self.point = util.get_reproject_point(
+                properties['location']['latitude'],
+                properties['location']['longitude'])
         self.properties = properties
 
     @property
@@ -44,13 +46,4 @@ class Crash(Record):
     @property
     def timestamp(self):
         return parse(self.properties['dateOccurred'])
-
-
-class Concern(Record):
-    def __init__(self, properties):
-        Record.__init__(self, properties)
-
-    @property
-    def timestamp(self):
-        return parse(self.properties['dateCreated'])
 

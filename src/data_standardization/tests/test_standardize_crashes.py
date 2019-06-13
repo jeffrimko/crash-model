@@ -1,8 +1,15 @@
 from .. import standardize_crashes
+from data.util import write_geocode_cache
 from jsonschema import validate
 import json
 import os
 import csv
+import pandas as pd
+from pandas.util.testing import assert_frame_equal
+import geopandas as gpd
+from shapely.geometry import Point
+import pytz
+import pytest
 
 TEST_FP = os.path.dirname(os.path.abspath(__file__))
 
@@ -87,11 +94,47 @@ def test_numeric_and_string_ids():
                             os.path.dirname(
                                 os.path.abspath(__file__))))), "standards", "crashes-schema.json"))))
 
-def test_date_formats():
+
+def test_standardize_with_cache(tmpdir):
+
+    fields = {
+        "id": "id",
+        "date_complete": "date_of_crash",
+        "time": "",
+        "time_format": "",
+        "latitude": "lat",
+        "longitude": "lng",
+        "address": 'location'
+    }
+    # Confirm crashes without coordinates or a geocoded address file are skipped
+    crashes_no_coords = [{
+        "id": "A1B2C3D4E5",
+        "date_of_crash": "2016-01-01T02:30:23-05:00",
+        "lat": "",
+        "lng": "",
+        'location': 'test',
+    }]
+    assert len(standardize_crashes.read_standardized_fields(
+        crashes_no_coords, fields, {'address': 'location'},
+        pytz.timezone("America/New_York"), tmpdir, 'test_city')) == 0
+
+    fields['latitude'] = ''
+    fields['longitude'] = ''
+
+    # Confirm crashes with a geocoded address are included
+    os.mkdir(os.path.join(tmpdir, 'processed'))
+    write_geocode_cache({'test test_city': ['test st', 42, -71, 'S']},
+                        filename=tmpdir + '/processed/geocoded_addresses.csv')
+    assert len(standardize_crashes.read_standardized_fields(
+        crashes_no_coords, fields, {'address': 'location'},
+               pytz.timezone("America/New_York"), tmpdir, 'test_city')) == 1
+    
+
+def test_date_formats(tmpdir):
     """
     Test various combinations of supplying dates.
     """
-    
+
     fields_date_constructed = {
         "id": "id",
         "date_complete": "date_of_crash",
@@ -100,17 +143,19 @@ def test_date_formats():
         "latitude": "lat",
         "longitude": "lng"
     }
-    
-    # Confirm crashes without coordinates are skipped
+
+    # Confirm crashes without coordinates and no address are skipped
     crashes_no_coords = [{
         "id": "A1B2C3D4E5",
         "date_of_crash": "2016-01-01T02:30:23-05:00",
         "lat": "",
         "lng": ""
     }]
-    
-    assert len(standardize_crashes.read_standardized_fields(crashes_no_coords, fields_date_constructed, {})) == 0
-        
+
+    assert len(standardize_crashes.read_standardized_fields(
+            crashes_no_coords, fields_date_constructed, {},
+            pytz.timezone("America/New_York"), tmpdir, 'test_city')) == 0
+
     # Confirm crashes using date_complete but without a value are skipped
     crashes_no_date = [{
         "id": "A1B2C3D4E5",
@@ -118,9 +163,11 @@ def test_date_formats():
         "lat": 42.317987926802246,
         "lng": -71.06188127008645
     }]
-    
-    assert len(standardize_crashes.read_standardized_fields(crashes_no_date, fields_date_constructed, {})) == 0
-    
+
+    assert len(standardize_crashes.read_standardized_fields(
+        crashes_no_date, fields_date_constructed, {},
+        pytz.timezone("America/New_York"), tmpdir, 'test_city')) == 0
+
     # Confirm crashes using date_complete with a value are standardized
     crashes_with_date = [{
         "id": "A1B2C3D4E5",
@@ -128,9 +175,11 @@ def test_date_formats():
         "lat": 42.317987926802246,
         "lng": -71.06188127008645
     }]
-    
-    assert len(standardize_crashes.read_standardized_fields(crashes_with_date, fields_date_constructed, {})) == 1
-    
+
+    assert len(standardize_crashes.read_standardized_fields(
+        crashes_with_date, fields_date_constructed, {},
+        pytz.timezone("America/New_York"), tmpdir, 'test_city')) == 1
+
     # Confirm crashes using deconstructed date with all values are standardized
     fields_date_deconstructed = {
         "id": "id",
@@ -143,7 +192,7 @@ def test_date_formats():
         "latitude": "lat",
         "longitude": "lng"
     }
-    
+
     crashes_with_date = [{
         "id": "A1B2C3D4E5",
         "year_of_crash": "2016",
@@ -152,9 +201,55 @@ def test_date_formats():
         "lat": 42.317987926802246,
         "lng": -71.06188127008645
     }]
-    
-    assert len(standardize_crashes.read_standardized_fields(crashes_with_date, fields_date_deconstructed, {})) == 1
-    
+
+    assert len(standardize_crashes.read_standardized_fields(
+        crashes_with_date, fields_date_deconstructed, {},
+        pytz.timezone("America/New_York"), tmpdir, 'test_city')) == 1
+
+    # Confirm crashes outside of specified start & end year ranges are dropped
+    crashes_in_different_years = [{
+        "id": "1",
+        "date_of_crash": "2016-12-31T02:30:23-05:00",
+        "lat": 42.317987926802246,
+        "lng": -71.06188127008645
+    },
+        {
+        "id": "2",
+        "date_of_crash": "2017-01-01T02:30:23-05:00",
+        "lat": 42.317987926802246,
+        "lng": -71.06188127008645
+    },
+        {
+        "id": "3",
+        "date_of_crash": "2018-01-01T02:30:23-05:00",
+        "lat": 42.317987926802246,
+        "lng": -71.06188127008645
+    }]
+
+    # filter crashes prior to a start year
+    assert len(standardize_crashes.read_standardized_fields(
+        crashes_in_different_years, fields_date_constructed, {},
+        pytz.timezone("America/New_York"), tmpdir, 'test_city',
+        startdate='2017-01-01T00:00:00-05:00')) == 2
+
+    # filter crashes after an end year
+    assert len(standardize_crashes.read_standardized_fields(
+        crashes_in_different_years, fields_date_constructed, {},
+        pytz.timezone("America/New_York"),
+        tmpdir, 'test_city',
+        enddate='2016-12-31')) == 1
+
+    # filter crashes after an end year
+    assert len(standardize_crashes.read_standardized_fields(
+        crashes_in_different_years, fields_date_constructed, {},
+        pytz.timezone("America/New_York"),
+        tmpdir, 'test_city',
+        enddate='2017-01-01')) == 2
+
+    # filter crashes between a start and end year
+#    assert len(standardize_crashes.read_standardized_fields(
+#        crashes_in_different_years, fields_date_constructed, {}, 2016, '2017-01-01T00:00:00-05:00')) == 1
+
     # Confirm crashes using deconstructed date but missing a day are standardized with a random day
     fields_date_no_day = {
         "id": "id",
@@ -167,7 +262,7 @@ def test_date_formats():
         "latitude": "lat",
         "longitude": "lng"
     }
-    
+
     crashes_with_date = [{
         "id": "A1B2C3D4E5",
         "year_of_crash": 2017,
@@ -175,5 +270,79 @@ def test_date_formats():
         "lat": 42.317987926802246,
         "lng": -71.06188127008645
     }]
-    
-    assert len(standardize_crashes.read_standardized_fields(crashes_with_date, fields_date_no_day, {})) == 1
+
+    assert len(standardize_crashes.read_standardized_fields(
+        crashes_with_date, fields_date_no_day, {},
+        pytz.timezone("America/New_York"), tmpdir, 'test_city')) == 1
+
+def test_make_rollup():
+    """
+    Tests total number of crashes per crash location is correctly calculated and
+    list of unique crash dates per location is correctly generated
+    """
+    standardized_crashes = [{
+        "id": 1,
+        "dateOccurred": "2015-01-01T00:45:00-05:00",
+        "location": {
+                "latitude": 42.365,
+                "longitude": -71.106
+        },
+        "address": "GREEN ST & PLEASANT ST",
+        "vehicles": []
+    }, {
+        "id": 1,
+        "dateOccurred": "2015-04-15T00:45:00-05:00",
+        "location": {
+                "latitude": 42.365,
+                "longitude": -71.106
+        },
+        "address": "GREEN ST & PLEASANT ST",
+        "vehicles": []
+    }, {
+        "id": 1,
+        "dateOccurred": "2015-10-20T00:45:00-05:00",
+        "location": {
+                "latitude": 42.365,
+                "longitude": -71.106
+        },
+        "address": "GREEN ST & PLEASANT ST",
+        "vehicles": []
+    }, {
+        "id": 2,
+        "dateOccurred": "2015-01-01T01:12:00-05:00",
+        "location": {
+                "latitude": 42.361,
+                "longitude": -71.097
+        },
+        "address": "LANDSDOWNE ST & MASSACHUSETTS AVE",
+        "vehicles": []
+    }, {
+        "id": 3,
+        "dateOccurred": "2015-01-01T01:54:00-05:00",
+        "location": {
+                "latitude": 42.396,
+                "longitude": -71.127
+        },
+        "address": "LOCKE ST & SHEA RD",
+        "vehicles": []
+    }, {
+        "id": 3,
+        "dateOccurred": "2015-01-01T01:54:00-05:00",
+        "location": {
+                "latitude": 42.396,
+                "longitude": -71.127
+        },
+        "address": "LOCKE ST & SHEA RD",
+        "vehicles": []
+    }]
+
+    results = standardize_crashes.make_crash_rollup(standardized_crashes)
+
+    expected_rollup = gpd.GeoDataFrame()
+    expected_rollup["coordinates"] = [Point(-71.097, 42.361), Point(-71.106, 42.365), Point(-71.127, 42.396)]
+    expected_rollup["total_crashes"] = [1, 3, 2]
+    expected_rollup["crash_dates"] = ["2015-01-01T01:12:00-05:00",
+                                      "2015-01-01T00:45:00-05:00,2015-04-15T00:45:00-05:00,2015-10-20T00:45:00-05:00",
+                                      "2015-01-01T01:54:00-05:00"]
+ 
+    assert_frame_equal(results, expected_rollup)

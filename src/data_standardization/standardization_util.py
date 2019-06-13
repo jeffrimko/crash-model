@@ -2,9 +2,10 @@ import dateutil.parser as date_parser
 from datetime import datetime, timedelta
 import json
 from jsonschema import validate
+from dateutil import tz
 
 
-def parse_date(date, time=None, time_format=None):
+def parse_date(date, timezone, time=None, time_format=None):
     """
     Turn a date (and optional time) into a datetime string
     in standardized format
@@ -43,12 +44,21 @@ def parse_date(date, time=None, time_format=None):
             date = date + timedelta(seconds=int(time))
         
         else:
-            date = date_parser.parse(
-                date.strftime('%Y-%m-%d ') + str(time)
-            )
-       
-    # TODO add timezone to config ("Z" is UTC)
-    date_time = date.strftime("%Y-%m-%dT%H:%M:%SZ")
+            try:
+                date = date_parser.parse(
+                    date.strftime('%Y-%m-%d ') + str(time)
+                )
+            # if time can't be parsed, just use bare date
+            except ValueError as _:
+                pass
+
+    # Add timezone if it wasn't included in the string formatting originally
+    if not date.tzinfo:
+        date = timezone.localize(date)
+    # If the timezone was set to utc, reformat into local time with offset
+    elif date.tzinfo == tz.tzutc():
+        date = date.astimezone(timezone)
+    date_time = date.isoformat()
     
     return date_time
 
@@ -59,10 +69,12 @@ def parse_address(address):
     If that's the format, parse out these values
     """
     lines = address.split('\n')
+
     if len(lines) == 3 and lines[2]:
+        street = ' '.join(lines[0].split()[1:])
         lat, lon = lines[2][1:-1].split(', ')
-        return float(lat), float(lon)
-    return None, None
+        return street, float(lat), float(lon)
+    return None, None, None
 
 
 def validate_and_write_schema(schema_path, schema_values, output_file):

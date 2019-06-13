@@ -1,3 +1,4 @@
+dist: xenial
 language: python
 python: 3.6
 
@@ -10,6 +11,7 @@ install:
 - export PATH="$HOME/miniconda/bin:$PATH"
 - conda env create -f environment.yml
 - source activate crash-model
+- conda env export
 
 script:
 - cd src
