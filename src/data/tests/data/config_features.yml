@@ -4,10 +4,13 @@ city_latitude: 42.3600825
 city_longitude: -71.0588801
 city_radius: 15
 timezone: America/New_York
-crashes_files: dummy
+crashes_files:
+  test:
+    dummy
 
 openstreetmap_features:
   categorical:
+    osm_speed: Speed limit
     width: Width
     cycleway_type: Bike lane
     oneway: One Way

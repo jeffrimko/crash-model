@@ -58,14 +58,46 @@ The demo city data is stored as *data-latest.zip* using data-world. Contact one 
         - For your csv crash file, enter the column header for id, latitude, longitude, and date.  If time is in a different column than date, give that column header as well. If your csv file does not contain an id field, just put ID here, and the csv will be modified to add an ID
         - If you have any supplemental files, they will be listed under data_source. For each data source, you'll need to enter the column headers for latitude, longitude, and date.
         - Modify time_target to be the last month and year of your crash data (this is legacy and you won't need to do this unless you want to do week-by-week modeling)
-- Manually edit config.js in /reports/ to add your mapbox api key (from when you made a mapbox account) as MAPBOX_TOKEN
+        - We also allow you to specify addditional features in the crash file to include in the training data set. This has been designed to handle mode (pedestrian, bike, vehicle) but designed to handle any set of features in the crash file. Here is an example of how to handle mode if it is specified as a single column with different value for each mode
+
+```
+      split_columns:
+        pedestrian:
+          column_name: Type
+          column_value: PED
+        bike:
+          column_name: Type
+          column_value: CYC
+        vehicle:
+          column_name: Type
+          column_value: AUTO
+```
+
+- And here is an example of how to handle mode if there is a column for bike, and a column for pedestrian, but no column for vehicle. Since a crash is counted as a vehicle crash if it is not a pedestrian or a bike crash, you use the not_column field to specify the bike/pedestrian columns
+
+```
+
+      split_columns:
+        pedestrian:
+          column_name: Count_Unit_Pedestrian
+          column_value: any
+        bike:
+          column_name: Count_Unit_Bicycle
+          column_value: any
+        vehicle:
+          not_column: pedestrian bike
+
+```
+- export your mapbox api key (from when you made a mapbox account) as an environment variable called MAPBOX_TOKEN
+- Running the initialize_city script will also generate a javascript config file in the showcase data directory, e.g. `src/showcase/data/config_boston.js`. You'll want to set a CONFIG_FILE environment variable to be that file: `export CONFIG_FILE=data/config_boston.js` but replace boston with your city's folder name
+- If the city name given in the initialize_city script (e.g. Boston, Massachusetts, USA) ends with 'USA', the speed unit set in the javascript config file will be 'mph', otherwise it will be 'kph'. If you'd like to change this, you can manually set it in the config_<city>.js file.
 
 ### Geocoding
 
 - If your crash file provides addresses but not latitude/longitude, you'll need to geocode your crash file before running the pipeline. This can be done from the src directory by running `python -m tools.geocode_batch -d <data directory created from the initalize_city script> -f <crash filename> -a <address field in the crash csv file> -c <city name, e.g. "Boston, Massachusetts, USA"`. If you have a very large number of entries to geocode, you may choose to use mapbox's geocoder instead of google's (the default for this script). In that case, you can also pass in your mapbox token to the script with the -m flag.
 
 ### Running on existing cities
-- Cities we have already set up will already have a config file.
+- Cities we have already set up on the showcase can be viewed using the default configuration file. If you'd prefer to view these cities, use that configuration file instead: `export CONFIG_FILE=static/config.js'
 
 - Run the pipeline: `python pipeline.py -c <config file>`
 
@@ -95,5 +127,13 @@ Found in src/models <br><br>
 
 5) Visualizing the results
 
-Found in src/visualization and reports/ <br><br>
-The script to generate the datasets needed to power the visualization can be found in src/visualization while the actual files used to display the visualization are found in /reports/.
+Once you have run the pipeline you can visualize results from your city, or you can view the showcase locally <br>
+
+To run locally:
+- `cd showcase`
+- You should have already exported your MAPBOX_TOKEN and CONFIG_FILE earlier in following along with this README, so check that those are set
+- `flask run`
+
+If you have set split columns in the config .yml file, you can select which split column's map you'd like to look at. Most frequently this would be mode, so you would see (for example) 'Boston, Massachusetts (bike)', 'Boston, Massachusetts (pedestrian)', and 'Boston, Massachusetts (vehicle)', showing the risk map and crashes for each mode type.
+
+Details about other visualization scripts can be found in the README under src/visualization

@@ -1,7 +1,8 @@
 import argparse
-import yaml
 import os
 import subprocess
+import shutil
+import data.config
 
 BASE_DIR = os.path.dirname(
     os.path.dirname(
@@ -143,7 +144,9 @@ def visualize(DATA_FP, config_file):
         '-m',
         'data.make_preds_viz',
         '-d',
-        DATA_FP
+        DATA_FP,
+        '-c',
+        config_file
     ])
     print("Generating risk map")
     subprocess.check_call([
@@ -155,13 +158,98 @@ def visualize(DATA_FP, config_file):
     ])
 
 
+def copy_files(base_dir, data_fp, config):
+    """
+    Copy necessary files into showcase directory
+    Args:
+        base_dir - top level directory
+        data_fp - data directory
+        config
+    """
+
+    showcase_dir = os.path.join(base_dir, 'src', 'showcase', 'data')
+    if not os.path.exists(showcase_dir):
+        os.makedirs(showcase_dir)
+
+    showcase_dir = os.path.join(showcase_dir, config.name)
+    if not os.path.exists(showcase_dir):
+        os.makedirs(showcase_dir)
+
+    files = []
+    if config.split_columns:
+        for column in config.split_columns:
+            files.append('preds_viz_' + column + '.geojson')
+            files.append('crashes_rollup_' + column + ".geojson")
+    else:
+        files.append('preds_viz.geojson')
+        files.append('crashes_rollup.geojson')
+
+    for file in files:
+        shutil.copyfile(
+            os.path.join(data_fp, 'processed', file),
+            os.path.join(showcase_dir, file))
+
+
+def make_js_config(BASE_DIR, config):
+    """
+    Make a city specific js config file in the showcase's data directory
+    Args:
+        BASE_DIR - city's data directory
+        config - configuration object
+    Returns:
+        nothing, just writes the js file in showcase/data/
+    """
+
+    showcase_data = os.path.join(
+        BASE_DIR, 'src', 'showcase', 'data')
+    if not os.path.exists(showcase_data):
+        os.makedirs(showcase_data)
+
+    jsfile = os.path.join(showcase_data, 'config_' + config.name + '.js')
+    print ("writing javascript config file in {}".format(jsfile))
+
+    f = open(jsfile, 'w')
+    f.write(
+        'var config = [\n')
+
+    if config.split_columns:
+        for split_column in config.split_columns:
+            name = config.city + " (" + split_column + ")"
+            f.write(
+                '    {\n' +
+                '        name: "{}",\n'.format(name) +
+                '        id: "{}",\n'.format(config.name + '_' + split_column) +
+                '        latitude: {},\n'.format(config.city_latitude) +
+                '        longitude: {},\n'.format(config.city_longitude) +
+                '        speed_unit: "{}",\n'.format(config.speed_unit) +
+                '        file: "data/{}/preds_viz_{}.geojson",\n'.format(config.name, split_column) +
+                '        crashes: "data/{}/crashes_rollup_{}.geojson"\n'.format(config.name, split_column) +
+                '    },\n'
+            )
+    else:
+        f.write(
+            '    {\n' +
+            '        name: "{}",\n'.format(config.city) +
+            '        id: "{}",\n'.format(config.name) +
+            '        latitude: {},\n'.format(config.city_latitude) +
+            '        longitude: {},\n'.format(config.city_longitude) +
+            '        speed_unit: "{}",\n'.format(config.speed_unit) +
+            '        file: "data/{}/preds_viz.geojson",\n'.format(config.name) +
+            '        crashes: "data/{}/crashes_rollup.geojson"\n'.format(config.name) +
+            '    }\n'
+        )
+        
+    f.write(']')
+    f.close()
+
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config_file", required=True, type=str,
                         help="config file location")
     parser.add_argument('--forceupdate', action='store_true',
-                        help='Whether to force update the maps')
+                        help='Whether to force update the maps and standard data')
     # Can also choose which steps of the process to run
     parser.add_argument('--onlysteps',
                         help="Give list of steps to run, as comma-separated " +
@@ -173,16 +261,15 @@ if __name__ == '__main__':
         steps = args.onlysteps.split(',')
 
     # Read config file
-    with open(args.config_file) as f:
-        config = yaml.safe_load(f)
+    config = data.config.Configuration(args.config_file)
 
-    DATA_FP = os.path.join(BASE_DIR, 'data', config['name'])
+    DATA_FP = os.path.join(BASE_DIR, 'data', config.name)
 
     if not args.onlysteps or 'standardization' in args.onlysteps:
         data_standardization(args.config_file, DATA_FP, forceupdate=args.forceupdate)
 
-    startdate = config['startdate']
-    enddate = config['enddate']
+    startdate = config.startdate
+    enddate = config.enddate
     if not args.onlysteps or 'generation' in args.onlysteps:
         data_generation(args.config_file, DATA_FP,
                         startdate=startdate,
@@ -194,3 +281,5 @@ if __name__ == '__main__':
 
     if not args.onlysteps or 'visualization' in args.onlysteps:
         visualize(DATA_FP, args.config_file)
+        copy_files(BASE_DIR, DATA_FP, config)
+        make_js_config(BASE_DIR, config)

@@ -4,15 +4,12 @@
 import argparse
 import os
 import pandas as pd
-from pandas.io.json import json_normalize
 from collections import OrderedDict
 import csv
 import calendar
 import random
 import dateutil.parser as date_parser
 from .standardization_util import parse_date, validate_and_write_schema
-from shapely.geometry import Point
-import geopandas as gpd
 from data.util import read_geocode_cache
 import data.config
 
@@ -177,36 +174,54 @@ def add_city_specific_fields(crash, formatted_crash, fields):
     if "address" in list(fields.keys()) and fields["address"]:
         formatted_crash["address"] = crash[fields["address"]]
 
-    # setup a vehicles list for each crash
-    formatted_crash["vehicles"] = []
+    # Add all features that have been specified under split_columns
+    if 'split_columns' in fields:
+        formatted_crash = add_split_columns(crash, formatted_crash, fields)
+    return formatted_crash
 
-    # check for car involvement
-    if "vehicles" in list(fields.keys()) and fields["vehicles"] == "mode_type":
-        # this needs work, but for now any of these mode types
-        # translates to a car being involved, quantity unknown
-        if crash[fields["vehicles"]] == "mv" or crash[fields["vehicles"]] == "ped" or crash[fields["vehicles"]] == "":
-            formatted_crash["vehicles"].append({"category": "car"})
 
-    elif "vehicles" in list(fields.keys()) and fields["vehicles"] == "TOTAL_VEHICLES":
-        if crash[fields["vehicles"]] != 0 and crash[fields["vehicles"]] != "":
-            formatted_crash["vehicles"].append({
-                "category": "car",
-                "quantity": int(crash[fields["vehicles"]])
-            })
+def add_split_columns(crash, formatted_crash, fields):
+    """
+    Add any fields specified in the split_columns field of the config
+    Args:
+        crash - a dict of unformatted crash information
+        formatted_crash - a dict with formatted crash fields
+        fields - a dict of config information about the crash fields
+    Returns:
+        formatted_fields
+    """
+    split_columns = fields['split_columns']
 
-    # check for bike involvement
-    if "bikes" in list(fields.keys()) and fields["bikes"] == "mode_type":
-        # assume bike and car involved, quantities unknown
-        if crash[fields["bikes"]] == "bike":
-            formatted_crash["vehicles"].append({"category": "car"})
-            formatted_crash["vehicles"].append({"category": "bike"})
+    # Negative splits are all fields that only have a positive value if none of
+    # the columns specified in not_column have values, so look at these separately
+    negative_splits = [x for x in split_columns if 'not_column' in split_columns[x].keys()]
+    splits_dict = {}
+    for key, value in split_columns.items():
 
-    elif "bikes" in list(fields.keys()) and fields["bikes"] == "TOTAL_BICYCLES":
-        if crash[fields["bikes"]] != 0 and crash[fields["bikes"]] != "":
-            formatted_crash['vehicles'].append({
-                "category": "bike",
-                "quantity": int(crash[fields["bikes"]])
-            })
+        if key in negative_splits or 'column_value' not in value or not value['column_name']:
+            continue
+
+        if value['column_value'] == 'any' and crash[value['column_name']]:
+            splits_dict[key] = 1
+        else:
+            if crash[value['column_name']] == value['column_value']:
+                splits_dict[key] = 1
+
+    for column in negative_splits:
+        # These are the columns that can't have a value for the current column to be true
+        # E.g. column is vehicle, and bike and pedestrian need to not be present in splits_dict
+        compare_columns = split_columns[column]['not_column'].split()
+        value = True
+
+        for compare_column in compare_columns:
+            if compare_column in splits_dict:
+                value = False
+        if value:
+            splits_dict[column] = 1
+
+    for key, value in splits_dict.items():
+        formatted_crash[key] = value
+
     return formatted_crash
 
 
@@ -232,52 +247,6 @@ def add_id(csv_file, id_field):
             for row in rows:
                 writer.writerow(row)
 
-def calculate_crashes_by_location(df):
-    """
-    Calculates total number of crashes that occurred at each unique lat/lng pair and
-    generates a comma-separated string of the dates that crashes occurred at that location
-
-    Inputs:
-        - a dataframe where each row represents one unique crash incident
-
-    Output:
-        - a dataframe with the total number of crashes at each unique crash location
-          and list of unique crash dates
-    """
-    crashes_agg = df.groupby(['latitude', 'longitude']).agg(['count', 'unique'])
-    crashes_agg.columns = crashes_agg.columns.get_level_values(1)
-    crashes_agg.rename(columns={'count': 'total_crashes', 'unique': 'crash_dates'}, inplace=True)
-    crashes_agg.reset_index(inplace=True)
-    
-    crashes_agg['crash_dates'] = crashes_agg['crash_dates'].str.join(',')
-    return crashes_agg
-
-def make_crash_rollup(crashes_json):
-    """
-    Generates a GeoDataframe with the total number of crashes and a comma-separated string
-    of crash dates per unique lat/lng pair
-
-    Inputs:
-        - a json of standardized crash data
-
-    Output:
-        - a GeoDataframe with the following columns:
-            - total number of crashes
-            - list of unique dates that crashes occurred
-            - GeoJSON point features created from the latitude and longitude
-    """
-    df_std_crashes = json_normalize(crashes_json)
-    df_std_crashes = df_std_crashes[["dateOccurred", "location.latitude", "location.longitude"]]
-    df_std_crashes.rename(columns={"location.latitude": "latitude", "location.longitude": "longitude"}, inplace=True)
-
-    crashes_agg = calculate_crashes_by_location(df_std_crashes)
-    crashes_agg["coordinates"] = list(zip(crashes_agg.longitude, crashes_agg.latitude))
-    crashes_agg["coordinates"] = crashes_agg["coordinates"].apply(Point)
-    crashes_agg = crashes_agg[["coordinates", "total_crashes", "crash_dates"]]
-
-    crashes_agg_gdf = gpd.GeoDataFrame(crashes_agg, geometry="coordinates")
-    print(crashes_agg_gdf.columns)
-    return crashes_agg_gdf
 
 if __name__ == '__main__':
 
@@ -335,11 +304,3 @@ if __name__ == '__main__':
     list_crashes = list(dict_crashes.values())
     crashes_output = os.path.join(args.datadir, "standardized/crashes.json")
     validate_and_write_schema(schema_path, list_crashes, crashes_output)
-
-    crashes_agg_gdf = make_crash_rollup(list_crashes)
-
-    crashes_agg_path = os.path.join(args.datadir, "standardized/crashes_rollup.geojson")
-    if os.path.exists(crashes_agg_path):
-        os.remove(crashes_agg_path)
-    crashes_agg_gdf.to_file(os.path.join(args.datadir, "standardized/crashes_rollup.geojson"), driver="GeoJSON")
-

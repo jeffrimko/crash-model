@@ -15,7 +15,11 @@ def print_feat_set(f, features):
         f.write("  {}:\n".format(feat_type))
         for feature in features[feat_type]:
             f.write("    {}\n".format(feature))
-
+    f.write("\n")
+    f.write("# Speed limit is a required feature\n" +
+            "# If you choose to override OpenStreetMaps' speed limit, replace 'osm_speed' with the feature name here\n" +
+            "speed_limit: osm_speed\n\n"
+            )
     
 def write_default_features(f, waze=False, supplemental=[],
                            additional_map=None):
@@ -98,6 +102,10 @@ def write_default_features(f, waze=False, supplemental=[],
 def make_config_file(yml_file, city, timezone, folder, crash,
                      waze, additional_map=None, supplemental=[]):
     address = geocode_address(city)
+    city_segments = city.split()
+    speed_unit = 'kph'
+    if city_segments[-1] == 'USA':
+        speed_unit = 'mph'
 
     f = open(yml_file, 'w')
 
@@ -110,7 +118,8 @@ def make_config_file(yml_file, city, timezone, folder, crash,
         "# City's time zone: defaults to the local time zone of computer initializing the city's config file\n" +
         "timezone: {}\n".format(timezone) +
         "# Radius of city's road network from centerpoint in km, required if OSM has no polygon data (defaults to 20km)\n" +
-        "city_radius: 20\n\n" +
+        "city_radius: 20\n" +
+        "speed_unit: {}\n\n".format(speed_unit) +
         "# By default, maps are created from OSM's polygon data and fall back to radius\n" +
         "# if there is no polygon data, but but you can change the openstreetmap_geography\n" +
         "# to 'radius' if preferred\n" +
@@ -149,8 +158,11 @@ def make_config_file(yml_file, city, timezone, folder, crash,
         "      # If the crash file doesn't have a lat/lon, you must give the address field\n" +
         "      # and you will need to run the geocode_batch script - see the README\n" +
         "      address: \n" +
-        "      vehicles: \n" +
-        "      bikes: \n\n"
+        "      # This section allows you to specify additional feature in the crash file\n" +
+        "      # (split_columns) to go into the training set\n" +
+        "      # Most commonly split_columns are used for mode (pedestrian/bike/vehicle)\n" +
+        "      # but you can specify other fields in the crash data file.\n" +
+        "      # See the README for examples\n\n"
     )
 
     write_default_features(f, waze, supplemental, additional_map)
@@ -159,27 +171,6 @@ def make_config_file(yml_file, city, timezone, folder, crash,
 
     print("Wrote new configuration file in {}".format(yml_file))
 
-
-def make_js_config(jsfile, city, folder):
-    address = geocode_address(city)
-
-    f = open(jsfile, 'w')
-    f.write(
-        'var config = {\n' +
-        '    MAPBOX_TOKEN: "",\n' +
-        '    cities: [\n' +
-        '        {\n' +
-        '            name: "{}",\n'.format(city) +
-        '            id: "{}",\n'.format(folder) +
-        '            latitude: {},\n'.format(str(address[1])) +
-        '            longitude: {},\n'.format(str(address[2])) +
-        '            file: "preds_final.geojson",\n' +
-        '            crashes: "crashes.json"\n' +
-        '        }\n' +
-        '    ]\n' +
-        '}\n'
-    )
-    f.close()
 
 if __name__ == '__main__':
 
@@ -226,6 +217,7 @@ if __name__ == '__main__':
         os.makedirs(os.path.join(DATA_FP, 'raw'))
         os.makedirs(crash_dir)
         os.makedirs(os.path.join(DATA_FP, 'processed'))
+        os.makedirs(os.path.join(DATA_FP, 'processed', 'maps'))
         os.makedirs(os.path.join(DATA_FP, 'standardized'))
         shutil.copyfile(args.crash_file, os.path.join(crash_dir, crash))
 
@@ -252,8 +244,3 @@ if __name__ == '__main__':
                          additional_map=args.additionalmap,
                          supplemental=supplemental_files)
 
-    js_file = os.path.join(
-        BASE_DIR, 'reports/config.js')
-    if not os.path.exists(js_file):
-        print("Writing config.js")
-        make_js_config(js_file, args.city, args.folder)

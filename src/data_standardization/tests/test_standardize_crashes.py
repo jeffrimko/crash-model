@@ -5,7 +5,6 @@ import json
 import os
 import csv
 import pandas as pd
-from pandas.util.testing import assert_frame_equal
 import geopandas as gpd
 from shapely.geometry import Point
 import pytz
@@ -275,74 +274,123 @@ def test_date_formats(tmpdir):
         crashes_with_date, fields_date_no_day, {},
         pytz.timezone("America/New_York"), tmpdir, 'test_city')) == 1
 
-def test_make_rollup():
-    """
-    Tests total number of crashes per crash location is correctly calculated and
-    list of unique crash dates per location is correctly generated
-    """
-    standardized_crashes = [{
-        "id": 1,
-        "dateOccurred": "2015-01-01T00:45:00-05:00",
-        "location": {
-                "latitude": 42.365,
-                "longitude": -71.106
-        },
-        "address": "GREEN ST & PLEASANT ST",
-        "vehicles": []
-    }, {
-        "id": 1,
-        "dateOccurred": "2015-04-15T00:45:00-05:00",
-        "location": {
-                "latitude": 42.365,
-                "longitude": -71.106
-        },
-        "address": "GREEN ST & PLEASANT ST",
-        "vehicles": []
-    }, {
-        "id": 1,
-        "dateOccurred": "2015-10-20T00:45:00-05:00",
-        "location": {
-                "latitude": 42.365,
-                "longitude": -71.106
-        },
-        "address": "GREEN ST & PLEASANT ST",
-        "vehicles": []
-    }, {
-        "id": 2,
-        "dateOccurred": "2015-01-01T01:12:00-05:00",
-        "location": {
-                "latitude": 42.361,
-                "longitude": -71.097
-        },
-        "address": "LANDSDOWNE ST & MASSACHUSETTS AVE",
-        "vehicles": []
-    }, {
-        "id": 3,
-        "dateOccurred": "2015-01-01T01:54:00-05:00",
-        "location": {
-                "latitude": 42.396,
-                "longitude": -71.127
-        },
-        "address": "LOCKE ST & SHEA RD",
-        "vehicles": []
-    }, {
-        "id": 3,
-        "dateOccurred": "2015-01-01T01:54:00-05:00",
-        "location": {
-                "latitude": 42.396,
-                "longitude": -71.127
-        },
-        "address": "LOCKE ST & SHEA RD",
-        "vehicles": []
-    }]
 
-    results = standardize_crashes.make_crash_rollup(standardized_crashes)
+def test_add_city_specific_fields():
+    config_fields = {
+        'split_columns': {
+            'pedestrian': {
+                'column_name': 'Type',
+                'column_value': 'PED'
+            },
+            'bike': {
+                'column_name': 'Type',
+                'column_value': 'CYC'
+            },
+            'vehicle': {
+                'column_name': 'Type',
+                'column_value': 'AUTO'
+            }
+        }
+    }
+    crash_auto = {
+        'DateTime': '1/1/2015 0:45',
+        'Address': 'GREEN ST & PLEASANT ST',
+        'Type': 'AUTO',
+        'EMS': 'N',
+        'X': 71.10602800000001,
+        'Y': 42.365871999999996,
+        'ID': 1
+    }
+    formatted_crash = {
+        'id': 1,
+        'dateOccurred': '2015-01-01T00:45:00-05:00',
+        'location': {
+            'latitude': 42.365871999999996,
+            'longitude': -71.10602800000001
+        }
+    }
+    # Tests for single column version of mode
+    result = standardize_crashes.add_city_specific_fields(
+        crash_auto, formatted_crash, config_fields)
+    assert result['vehicle'] == 1
+    assert 'pedestrian' not in result
+    assert 'bike' not in result
 
-    expected_rollup = gpd.GeoDataFrame()
-    expected_rollup["coordinates"] = [Point(-71.097, 42.361), Point(-71.106, 42.365), Point(-71.127, 42.396)]
-    expected_rollup["total_crashes"] = [1, 3, 2]
-    expected_rollup["crash_dates"] = ["2015-01-01T01:12:00-05:00",
-                                      "2015-01-01T00:45:00-05:00,2015-04-15T00:45:00-05:00,2015-10-20T00:45:00-05:00",
-                                      "2015-01-01T01:54:00-05:00"]
- 
-    assert_frame_equal(results, expected_rollup)
+    crash_bike = {
+        'DateTime': '1/5/2015 9:17',
+        'Address': '395 COLUMBIA ST',
+        'Type': 'CYC',
+        'EMS': 'N',
+        'X': -71.09474718,
+        'Y': 42.37245524,
+        'ID': 12
+    }
+    formatted_crash_bike = {
+        'id': 12,
+        'dateOccurred': '2015-01-05T09:17:00-05:00',
+        'location': {
+            'latitude': 42.37245524,
+            'longitude': -71.09474718
+        }
+    }
+    result = standardize_crashes.add_city_specific_fields(
+        crash_bike, formatted_crash_bike, config_fields)
+    assert result['bike'] == 1
+    assert 'vehicle' not in result
+    assert 'pedestrian' not in result
+
+    # Tests for multicolumn version of mode
+    config_fields_multicolumn = {
+        'summary': 'MAR_ADDRESS',
+        'split_columns': {
+            'pedestrian': {
+                'column_name': 'TOTAL_PEDESTRIANS',
+                'column_value': 'any'
+            },
+            'bike': {
+                'column_name': 'TOTAL_BICYCLES',
+                'column_value': 'any'
+            },
+            'vehicle': {
+                'not_column': 'pedestrian bike'
+            }
+        }
+    }
+    crash_auto_multicolumn = {
+        'MAR_ADDRESS': '400 NEW YORK AVENUE NW',
+        'TOTAL_PEDESTRIANS': 0,
+        'TOTAL_BICYCLES': 0
+    }
+    crash_formatted = {
+        'id': 1,
+        'dateOccurred': '2014-07-06T01:00:00-04:00',
+        'location': {
+            'latitude': 38.9044810958,
+            'longitude': -77.0161807127
+        }
+    }
+    result = standardize_crashes.add_city_specific_fields(
+        crash_auto_multicolumn, crash_formatted, config_fields_multicolumn)
+    assert result['vehicle'] == 1
+    assert 'pedestrian' not in result
+    assert 'bike' not in result
+    assert result['summary'] == '400 NEW YORK AVENUE NW'
+
+    crash_ped_multicolumn = {
+        'MAR_ADDRESS': '400 NEW YORK AVENUE NW',
+        'TOTAL_PEDESTRIANS': 1,
+        'TOTAL_BICYCLES': 0
+    }
+    crash_formatted = {
+        'id': 1,
+        'dateOccurred': '2016-07-22T22:36:49-04:00',
+        'location': {
+            'latitude': 38.8921170792,
+            'longitude': -77.0175669483
+        }
+    }
+    result = standardize_crashes.add_city_specific_fields(
+        crash_ped_multicolumn, crash_formatted, config_fields_multicolumn)
+    assert result['pedestrian'] == 1
+    assert 'vehicle' not in result
+    assert 'bike' not in result

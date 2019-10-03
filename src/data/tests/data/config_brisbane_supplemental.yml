@@ -7,6 +7,7 @@ city_longitude: 153.0251235
 timezone: Australia/Brisbane
 # Radius of city's road network from centerpoint in km, required if OSM has no polygon data (defaults to 20km)
 city_radius: 20
+speed_unit: kph
 
 # By default, maps are created from OSM's polygon data and fall back to radius
 # if there is no polygon data, but but you can change the openstreetmap_geography
@@ -47,9 +48,12 @@ crashes_files:
       summary: 
       # If the crash file doesn't have a lat/lon, you must give the address field
       # and you will need to run the geocode_batch script - see the README
-      address: 
-      vehicles: 
-      bikes: 
+      address:
+      # This section allows you to specify additional feature in the crash file
+      # (split_columns) to go into the training set
+      # Most commonly split_columns are used for mode (pedestrian/bike/vehicle)
+      # but you can specify other fields in the crash data file.
+      # See the README for examples
 
 # List of concern type information
 concern_files:
@@ -90,5 +94,9 @@ openstreetmap_features:
     lanes: Number of lanes
   continuous:
     width_per_lane: Average width per lane
+
+# Speed limit is a required feature
+# If you choose to override OpenStreetMaps' speed limit, replace 'osm_speed' with the feature name here
+# speed_limit: osm_speed
 
 

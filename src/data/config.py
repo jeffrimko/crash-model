@@ -15,7 +15,7 @@ class Configuration(object):
         if 'city' not in config or config['city'] is None:
             sys.exit('City is required in config file')
         self.city = config['city']
-        
+
         if 'city_latitude' not in config or config['city_latitude'] is None:
             sys.exit('city_latitude is required in config file')
         self.city_latitude = config['city_latitude']
@@ -27,6 +27,11 @@ class Configuration(object):
         if 'city_radius' not in config or config['city_radius'] is None:
             sys.exit('city_radius is required in config file')
         self.city_radius = config['city_radius']
+
+        if 'speed_unit' not in config or config['speed_unit'] is None:
+            self.speed_unit = 'mph'
+        else:
+            self.speed_unit = config['speed_unit']
 
         if 'map_geography' in config and config['map_geography']:
             self.map_geography = config['map_geography']
@@ -70,6 +75,13 @@ class Configuration(object):
         self.features = self.default_features + self.categorical_features \
             + self.continuous_features
 
+        self.split_columns = []
+
+        for _, crash_value in config['crashes_files'].items():
+            if 'optional' in crash_value and 'split_columns' in crash_value['optional']:
+                self.split_columns += crash_value['optional']['split_columns'].keys()
+
+        
     def get_feature_list(self, config):
         """
         Make the list of features, and write it to the city's data folder
@@ -109,6 +121,12 @@ class Configuration(object):
         # For now, all atr features are continuous
         if 'atr_cols' in config and config['atr_cols']:
             feat_types['f_cont'] += config['atr_cols']
+
+        if 'speed_limit' not in config:
+            # Set default speed limit
+            feat_types['f_cat'].append('osm_speed')
+        else:
+            feat_types['f_cat'].append(config['speed_limit'])
 
         return feat_types['default'], feat_types['f_cat'], feat_types['f_cont']
 

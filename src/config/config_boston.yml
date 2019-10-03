@@ -39,8 +39,16 @@ crashes_files:
         optional:
             summary: location_type
             address: 
-            vehicles: mode_type
-            bikes: mode_type
+            split_columns:
+              pedestrian:
+                column_name: mode_type
+                column_value: ped
+              bike:
+                column_name: mode_type
+                column_value: bike
+              vehicle:
+                column_name: mode_type
+                column_value: mv
 
 ##############################################################################
 
@@ -89,11 +97,10 @@ additional_map_features:
   continuous:
     AADT: Average annual daily traffic
   categorical:
-    SPEEDLIMIT: Speed limit
     Struct_Cnd: Condition
     Surface_Tp: Road type
     F_F_Class: Functional class
-
+speed_limit: SPEEDLIMIT
 
 # Additional data sources
 data_source:
